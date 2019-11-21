@@ -1,0 +1,409 @@
+---
+title: "PMID_30566875"
+output: html_document
+---
+
+
+
+```{r}
+
+library(Seurat)
+
+D17 <- Read10X(data.dir="GSE117403/GSE117403_D17/")
+D17 <- as.matrix(D17)
+D17 <- as.data.frame(D17)
+colnames(D17) <- paste("D17",colnames(D17),sep="_")
+
+colnames(D17)
+D27 <- Read10X(data.dir="GSE117403/GSE117403_D27/")
+D27 <- as.matrix(D27)
+D27 <- as.data.frame(D27)
+colnames(D27) <- paste("D27",colnames(D27),sep="_")
+
+Pd <- Read10X(data.dir="GSE117403/GSE117403_Pd/")
+Pd <- as.matrix(Pd)
+Pd <- as.data.frame(Pd)
+colnames(Pd) <- paste("Pd",colnames(Pd),sep="_")
+
+save(file="D17.Rdata",D17)
+save(file="D27.Rdata",D27)
+save(file="Pd.Rdata",Pd)
+
+Prostate_Total <- as.data.frame(cbind(D17,D27))
+Prostate_Total <- as.data.frame(cbind(Prostate_Total,Pd))
+save(file="Prostate_Total.Rdata",Prostate_Total)
+
+load(file="D17.Rdata")
+load(file="D27.Rdata")
+load(file="Pd.Rdata")
+
+Prostate_Total <- as.data.frame(cbind(D17,D27,Pd))
+```
+
+
+
+```{r, Seuratify}
+
+
+
+SeuratyChop <- function(Data,Name){
+so = CreateSeuratObject(Data)
+so =  NormalizeData(so, verbose = T, normalization.method = "LogNormalize", scale.factor = 10000)
+so = FindVariableFeatures(so, selection.method = "vst", nfeatures = 2000, verbose = T)
+so = ScaleData(so, assay = "RNA")
+
+so = RunPCA(so, npcs = 100, ndims.print = 1:5, nfeatures.print = 5)
+
+PC_Heatmap_Name <- paste(Name,"PC_Heatmap.pdf",sep="_")
+pdf(file=PC_Heatmap_Name, 10, 10)
+DimHeatmap(so, dims = c(1:3, 70:75), cells = 500, balanced = TRUE)
+dev.off()
+#so = RunTSNE(so, dims = 1:100, tsne.method = "FIt-SNE", nthreads = 8, max_iter = 2000)
+so = RunUMAP(so, dims = 1:100)
+
+#Data already clustered
+so = FindNeighbors(so, reduction = "pca", dims = 1:100, k.param = 20, verbose = T)
+so = FindClusters(so, resolution = 1.5, n.start = 10, algorithm = 1, n.iter = 10)
+so = FindClusters(so, resolution = 1.0, n.start = 10, algorithm = 1, n.iter = 10)
+so = FindClusters(so, resolution = 0.5, n.start = 10, algorithm = 1, n.iter = 10)
+so = FindClusters(so, resolution = 0.25, n.start = 10, algorithm = 1, n.iter = 10)
+
+UMAPName <- paste(Name,"UMAP.pdf",sep="_")
+
+pdf(UMAPName,height=10,width=10)
+print(DimPlot(so,pt.size=2,reduction = "umap"))
+dev.off()
+
+SaveName <- paste(Name,"SeuratObject.Rda",sep="_")
+save(file = SaveName,so)
+}
+
+```
+
+
+```{r}
+library(Seurat)
+SeuratyChop(D17,"D17")
+SeuratyChop(D27,"D27")
+SeuratyChop(Pd,"Pd")
+
+
+
+
+```
+
+
+
+```{r, SeuratifyTotal}
+
+library(Seurat)
+library(ggplot2)
+library(dplyr)
+NferenceSeurat = function(seurat_object = so,Name) {
+  require(Seurat)
+  source("~/Downloads/FIt-SNE-master/fast_tsne.R", chdir = T) #path to fast_tsne.R in order to use FIt-SNE
+  #so = NormalizeData(so, verbose = T, normalization.method = "LogNormalize", scale.factor = 10000)
+  #so = FindVariableFeatures(so, selection.method = "vst", nfeatures = 2000, verbose = T)
+  so = ScaleData(so, assay = "integrated")
+  
+  so = RunPCA(so, npcs = 100, ndims.print = 1:5, nfeatures.print = 5)
+  
+  x = cumsum((so@reductions$pca@stdev**2 / sum(so@reductions$pca@stdev**2)))
+  ndims = min(which(x >= 0.6))
+  
+  ElbowPlot(object = so, ndims = 100, reduction = "pca") + geom_vline(mapping = aes(xintercept = ndims), color = "red", linetype="dashed") + ggtitle(label = sprintf("ndims PCA for further analysis = %s", ndims))
+  DimHeatmap(so, dims = c(1:3, 70:75), cells = 500, balanced = TRUE)
+  message("Run tSNE...")
+  so = RunTSNE(so, dims = 1:ndims, nthreads = 8, max_iter = 2000,check_duplicates = FALSE)
+  message("Run UMAP...")
+  
+  so = RunUMAP(so, dims = 1:ndims)
+  message("Revised clusters...")
+  so = FindNeighbors(so)
+  so = FindClusters(so, resolution = 0.25, n.start = 10, algorithm = 1, n.iter = 10)
+  UMAPName0p25 <- paste(Name,"_UMAP_0p25.pdf",sep="")
+  pdf(file=UMAPName0p25,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "umap"))
+  dev.off()
+  TSNEName0p25 <- paste(Name,"_TSNE_0p25.pdf",sep="")
+  pdf(file=TSNEName0p25,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "tsne"))
+  dev.off()
+  so = FindClusters(so, resolution = 0.5, n.start = 10, algorithm = 1, n.iter = 10)
+    UMAPName0p50 <- paste(Name,"_UMAP_0p50.pdf",sep="")
+  pdf(file=UMAPName0p50,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "umap"))
+  dev.off()
+  TSNEName0p50 <- paste(Name,"_TSNE_0p50.pdf",sep="")
+  pdf(file=TSNEName0p50,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "tsne"))
+  dev.off()
+  so = FindClusters(so, resolution = 1, n.start = 10, algorithm = 1, n.iter = 10)
+  UMAPName1p00 <- paste(Name,"_UMAP_1p00.pdf",sep="")
+  pdf(file=UMAPName1p00,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "umap"))
+  dev.off()
+  TSNEName1p00 <- paste(Name,"_TSNE_1p00.pdf",sep="")
+  pdf(file=TSNEName1p00,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "tsne"))
+  dev.off()
+  so = FindClusters(so, resolution = 1.5, n.start = 10, algorithm = 1, n.iter = 10)
+  UMAPName1p50 <- paste(Name,"_UMAP_1p50.pdf",sep="")
+  pdf(file=UMAPName1p50,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "umap"))
+  dev.off()
+  TSNEName1p50 <- paste(Name,"_TSNE_1p50.pdf",sep="")
+  pdf(file=TSNEName1p50,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "tsne"))
+  dev.off()
+  so = FindClusters(so, resolution = 2, n.start = 10, algorithm = 1, n.iter = 10)
+  UMAPName2p00 <- paste(Name,"_UMAP_2p00.pdf",sep="")
+  pdf(file=UMAPName2p00,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "umap"))
+  dev.off()
+  TSNEName2p00 <- paste(Name,"_TSNE_2p00.pdf",sep="")
+  pdf(file=TSNEName2p00,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "tsne"))
+  dev.off()
+  so = FindClusters(so, resolution = 3, n.start = 10, algorithm = 1, n.iter = 10)
+  UMAPName3p00 <- paste(Name,"_UMAP_3p00.pdf",sep="")
+  pdf(file=UMAPName3p00,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "umap"))
+  dev.off()
+  TSNEName3p00 <- paste(Name,"_TSNE_3p00.pdf",sep="")
+  pdf(file=TSNEName3p00,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "tsne"))
+  dev.off()
+  so = FindClusters(so, resolution = 4, n.start = 10, algorithm = 1, n.iter = 10)
+  UMAPName4p00 <- paste(Name,"_UMAP_4p00.pdf",sep="")
+  pdf(file=UMAPName4p00,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "umap"))
+  dev.off()
+  TSNEName4p00 <- paste(Name,"_TSNE_4p00.pdf",sep="")
+  pdf(file=TSNEName4p00,height=5,width=5)
+  print(DimPlot(so,pt.size=2,reduction = "tsne"))
+  dev.off()
+
+  SeuratAssignName <- paste(Name,"_SeuratObject",sep="")
+  assign(SeuratAssignName,so,envir=.GlobalEnv)
+  SeuratSaveName <- paste(Name,"_SeuratObject.Rdata",sep="")
+  save(file=SeuratSaveName,so)
+}
+
+so <- CreateSeuratObject(Prostate_Total)
+NferenceSeurat(so,"Prostate_Total")
+D17Seurat <- CreateSeuratObject(D17)
+NferenceSeurat(D17Seurat,"D17Seurat")
+D27Seurat <- CreateSeuratObject(D27)
+NferenceSeurat(D27Seurat,"D27Seurat")
+PdSeurat <- CreateSeuratObject(Pd)
+NferenceSeurat(PdSeurat,"PdSeurat")
+
+
+
+ProstateTotal
+
+load("Prostate_Total_SeuratObject.Rdata")
+Prostate_Total_SeuratObject <- SetIdent(Prostate_Total_SeuratObject,value=Prostate_Total_SeuratObject@meta.data$RNA_snn_res.0.25)
+Prostate_Total_Markers <- FindAllMarkers(Prostate_Total_SeuratObject,test.use="bimod")
+save(file="Prostate_Total_Markers.Rdata",Prostate_Total_Markers)
+
+Prostate_Total_Markers_Top20 <- Prostate_Total_Markers %>% group_by(cluster) %>% top_n(20,avg_logFC)
+
+  Prostate_Total_SeuratObject <- SetIdent(Prostate_Total_SeuratObject,value=Prostate_Total_SeuratObject@meta.data$orig.ident)
+  
+  Prostate_Total_SeuratObject
+DimPlot(Prostate_Total_SeuratObject,reduction='umap')
+FeaturePlot(Prostate_Total_SeuratObject,"KRT13")
+FeaturePlot(Prostate_Total_SeuratObject,"KRT14")
+FeaturePlot(Prostate_Total_SeuratObject,"VWF")
+
+```
+
+
+
+
+```{r, Prostate Integration Code}
+load("Prostate_Total_SeuratObject.Rdata")
+Prostate_Total_SeuratObject <- so
+rm(so)
+
+unique(Prostate_Total_SeuratObject@meta.data$orig.ident)
+Prostate_Total_SeuratObject <- SetIdent(Prostate_Total_SeuratObject,value=Prostate_Total_SeuratObject@meta.data$orig.ident)
+ProstateTotal.list <- SplitObject(Prostate_Total_SeuratObject)
+
+#Preprocessing
+#BAL
+for (i in 1:length(ProstateTotal.list)) {
+ProstateTotal.list[[i]] <- NormalizeData(ProstateTotal.list[[i]], verbose = FALSE)
+ProstateTotal.list[[i]] <- FindVariableFeatures(ProstateTotal.list[[i]], selection.method = "vst", nfeatures = 2000, verbose = FALSE)
+}
+
+#Integration
+ProstateTotal.anchors <- FindIntegrationAnchors(object.list = ProstateTotal.list, dims = 1:40,k.filter = 150)
+
+save(file="ProstateTotal.anchors.Rdata",ProstateTotal.anchors)
+load(file="ProstateTotal.anchors.Rdata")
+#Integrated datasets
+ProstateTotal.integrated <- IntegrateData(anchorset = ProstateTotal.anchors, dims = 1:40)
+
+DefaultAssay(ProstateTotal.integrated) <- "integrated"
+
+
+save(file="ProstateTotal.integrated.Rdata",ProstateTotal.integrated)
+
+load("ProstateTotal.integrated.Rdata")
+ProstateTotal.integrated = ScaleData(ProstateTotal.integrated)
+ProstateTotal.integrated = RunPCA(ProstateTotal.integrated)
+#ProstateTotal.integrated = RunTSNE(ProstateTotal.integrated, dims = 1:15, nthreads = 8, max_iter =2000,check_duplicates = FALSE)
+ProstateTotal.integrated = RunUMAP(ProstateTotal.integrated, dims = 1:15, nthreads = 8, max_iter =2000,check_duplicates = FALSE)
+
+ProstateTotal.integrated = FindNeighbors(ProstateTotal.integrated)
+ProstateTotal.integrated = FindClusters(ProstateTotal.integrated, resolution = 0.2, n.start = 10, algorithm = 1, n.iter = 10)
+
+ProstateTotal.integrated <- SetIdent(ProstateTotal.integrated,value=ProstateTotal.integrated@meta.data$orig.ident)
+
+```
+
+
+### Nference Seurat
+
+
+```{r,}
+so <- ProstateTotal.integrated
+rm(ProstateTotal.integrated)
+library(ggplot2)
+library(dplyr)
+NferenceSeurat(so,"ProstateIntegrated")
+
+
+
+DefaultAssay(so) <- "RNA"
+FeaturePlot(so,c("DCN"))
+FeaturePlot(so,c("KRT14"))
+FeaturePlot(so,c("MYH11"))
+FeaturePlot(so,c("VWF"))
+FeaturePlot(so,c("KRT13"))
+FeaturePlot(so,c("SCGB1A1"))
+FeaturePlot(so,c("KLK3"))
+FeaturePlot(so,c("JCHAIN"))
+FeaturePlot(so,c("KRT13"))
+
+
+DefaultAssay(ProstateIntegrated_SeuratObject) <- "integrated"
+
+
+ProstateIntegrated_SeuratObject = FindClusters(ProstateIntegrated_SeuratObject, resolution = 0.1, n.start = 10, algorithm = 1, n.iter = 10)
+
+ProstateIntegrated_SeuratObject <- SetIdent(ProstateIntegrated_SeuratObject, value = ProstateIntegrated_SeuratObject$RNA_snn_res.0.25)
+
+
+DefaultAssay(ProstateIntegrated_SeuratObject) <- "RNA"
+ProstateIntegratedMarkers <- FindAllMarkers(ProstateIntegrated_SeuratObject,test.use="bimod")
+
+save(file="ProstateIntegratedMarkers_0.10.Rdata",ProstateIntegratedMarkers)
+load("ProstateIntegratedMarkers.Rdata")
+library(dplyr)
+ProstateTop10 <- ProstateIntegratedMarkers %>% group_by(cluster) %>% top_n(n=10,wt= avg_logFC)
+
+DimPlot(ProstateIntegrated_SeuratObject,label=TRUE)
+FeaturePlot(ProstateIntegrated_SeuratObject,c("TP63"))
+FeaturePlot(ProstateIntegrated_SeuratObject,c("CD3D"))
+
+colnames(ProstateIntegrated_SeuratObject@meta.data)
+
+```
+
+
+
+
+
+
+### Format Metadata Prostate
+
+```{r, FormatMetadata}
+
+load("Prostate")
+ProstateMetadataFinal$Cell_ID
+
+#Ovarian_SeuratObject@meta.data$Sample <-   sapply(strsplit(row.names(ProstateMetadataFinal), "_"), `[`, 1)
+
+ProstateMetadataFinal <- as.data.frame(row.names(ProstateIntegrated_SeuratObject@meta.data))
+colnames(ProstateMetadataFinal) <- "Cell_ID"
+row.names(ProstateMetadataFinal) <- ProstateMetadataFinal$Cell_ID
+ProstateMetadataFinal$Technology <- "10x"
+ProstateMetadataFinal$Species <- "Homosapiens"
+ProstateMetadataFinal$Individual_ID <- sapply(strsplit(row.names(ProstateMetadataFinal), "_"), `[`, 1)
+ProstateMetadataFinal$Age <- "NA"
+ProstateMetadataFinal$Condition <- "NA"
+ProstateMetadataFinal$Organ <- "prostate"
+ProstateMetadataFinal$Anatomy <- "tissue"
+ProstateMetadataFinal$CellType <- "tissue"
+ProstateMetadataFinal$SortedPopulation <- "NA"
+ProstateMetadataFinal$Cancer_PrimaryMetastasis <- "NA"
+ProstateMetadataFinal$Cancer_SiteOfOrigin <- "NA"
+ProstateMetadataFinal$TSNE1 <- ProstateIntegrated_SeuratObject@reductions$tsne@cell.embeddings[,1]
+ProstateMetadataFinal$TSNE2 <- ProstateIntegrated_SeuratObject@reductions$tsne@cell.embeddings[,2]
+ProstateMetadataFinal$UMAP1 <- ProstateIntegrated_SeuratObject@reductions$umap@cell.embeddings[,1]
+ProstateMetadataFinal$UMAP2 <- ProstateIntegrated_SeuratObject@reductions$umap@cell.embeddings[,2]
+ProstateMetadataFinal$StudyCluster <- "NA"
+ProstateMetadataFinal$RevisedCluster_Res0.10 <- ProstateIntegrated_SeuratObject@meta.data$integrated_snn_res.0.1
+ProstateMetadataFinal$RevisedCluster_Res0.25 <- ProstateIntegrated_SeuratObject@meta.data$integrated_snn_res.0.25
+ProstateMetadataFinal$RevisedCluster_Res0.5 <-  ProstateIntegrated_SeuratObject@meta.data$integrated_snn_res.0.5
+ProstateMetadataFinal$RevisedCluster_Res1 <-  ProstateIntegrated_SeuratObject@meta.data$integrated_snn_res.1
+ProstateMetadataFinal$RevisedCluster_Res1.5 <-  ProstateIntegrated_SeuratObject@meta.data$integrated_snn_res.1.5
+ProstateMetadataFinal$RevisedCluster_Res2 <-  ProstateIntegrated_SeuratObject@meta.data$integrated_snn_res.2
+ProstateMetadataFinal$RevisedCluster_Res3 <-  ProstateIntegrated_SeuratObject@meta.data$integrated_snn_res.3
+ProstateMetadataFinal$RevisedCluster_Res4 <-  ProstateIntegrated_SeuratObject@meta.data$integrated_snn_res.4
+ProstateMetadataFinal$StudyAnnotation <- "NA"
+ProstateMetadataFinal$RevisedAnnotation[ProstateMetadataFinal$RevisedCluster_Res0.10 == 0] <- "Basal"
+ProstateMetadataFinal$RevisedAnnotation[ProstateMetadataFinal$RevisedCluster_Res0.10 == 1] <- "Hillock-Club"
+ProstateMetadataFinal$RevisedAnnotation[ProstateMetadataFinal$RevisedCluster_Res0.10 == 2] <- "Fibroblast"
+ProstateMetadataFinal$RevisedAnnotation[ProstateMetadataFinal$RevisedCluster_Res0.10 == 3] <- "Luminal Epithelial"
+ProstateMetadataFinal$RevisedAnnotation[ProstateMetadataFinal$RevisedCluster_Res0.10 == 4] <- "Smooth Muscle"
+ProstateMetadataFinal$RevisedAnnotation[ProstateMetadataFinal$RevisedCluster_Res0.10 == 5] <- "Epithelial - Unspecified"
+ProstateMetadataFinal$RevisedAnnotation[ProstateMetadataFinal$RevisedCluster_Res0.10 == 6] <- "Endothelial"
+ProstateMetadataFinal$RevisedAnnotation[ProstateMetadataFinal$RevisedCluster_Res0.10 == 7] <- "Myeloid"
+
+ProstateMetadataFinal$SourceURL <- "https://www.ncbi.nlm.nih.gov/pubmed/30566875"
+ProstateMetadataFinal$Reference <- "PMID30566875"
+
+save(file="ProstateMetadataFinal.Rdata",ProstateMetadataFinal)
+save(file="ProstateIntegrated_SeuratObject.Rdata",ProstateIntegrated_SeuratObject)
+```
+
+
+
+```{r, OutputData}
+
+load("ProstateIntegrated_SeuratObject.Rdata")
+#load("Ovarian_SeuratObject.Rdata")
+load("")
+load("ProstateMetadataFinal.Rdata")
+
+OutputData <- function(SeuratObject,Metadata,Name){
+library(Matrix)
+m = NormalizeData(SeuratObject, assay = "RNA", normalization.method = "LogNormalize", scale.factor = 10000)
+Matrix::colSums(exp(m@assays$RNA@data[,1:10])-1)
+
+MatrixName <- paste("~/Dropbox (MurDropBox)/nference_DropBox/SingleCellStudies/",Name,"_matrix.mtx",sep="")
+GenesName <- paste("~/Dropbox (MurDropBox)/nference_DropBox/SingleCellStudies/",Name,"_genes.tsv",sep="")
+CellIDName <- paste("~/Dropbox (MurDropBox)/nference_DropBox/SingleCellStudies/",Name,"_Cell_ID.tsv",sep="")
+MetadataName <- paste("~/Dropbox (MurDropBox)/nference_DropBox/SingleCellStudies/",Name,"_metadata.tsv",sep="")
+
+writeMM(obj = m@assays$RNA@data, file = MatrixName)
+write.table(rownames(SeuratObject), file = GenesName, quote = F, row.names = F, col.names = F)
+write.table(colnames(SeuratObject), file = CellIDName, quote = F, row.names = F, col.names = F)
+#Metadata
+write.table(Metadata, file = MetadataName, quote = F, row.names = F, col.names = T, sep = "\t")
+}
+
+
+OutputData(ProstateIntegrated_SeuratObject,ProstateMetadataFinal,"Study_17")
+
+
+```
+
+
+
+
